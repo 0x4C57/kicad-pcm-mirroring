@@ -8,17 +8,17 @@ function update_package(){
     pkg_filename=`echo "$3" | sed -E 's/.+\/([a-zA-Z0-9\-_.]+)/\1/g'`  # Extract file name
     if [ -e "versions/$pkg_filename" ]; then
         last_ver=`cat "versions/$pkg_filename"`
-        if [ "$last_ver" -eq "$2" ]; then
+        if [ "$last_ver" = "$2" ]; then
             return 0
         fi
     fi
     curl -L "$3" -o "pkg_tmp/$pkg_filename"  # Download
     target_url="https://mirrors.4c57.org/kicadpcm/packages/$pkg_filename"  # Return URL
-    file_path="/www/mirrors.4c57.org/kicadpcm/packages/$pkg_filename"
+    file_path="/www/wwwroot/mirrors.4c57.org/kicadpcm/packages/$pkg_filename"
     cp "pkg_tmp/$pkg_filename" "$file_path"  # Copy file to Web Server
     # Check for old file and remove it
     last_file_name=`cat "lastfilename/$pkg_filename"`
-    if [ -f "lastfilename/$pkg_filename" -a -f "/www/mirrors.4c57.org/kicadpcm/packages/$last_file_name" ]; then
+    if [ -f "lastfilename/$pkg_filename" -a -f "/www/wwwroot/mirrors.4c57.org/kicadpcm/packages/$last_file_name" ]; then
         cat "lastfilename/$pkg_filename" | xargs rm
     fi
     echo "$file_path" > "lastfilename/$pkg_filename"  # Write this file path
@@ -56,13 +56,6 @@ curl -L `jq -r '.resources.url' repo_tmp.json` -o resources.zip
 
 # TODO: verify
 
-# Make new metadata
-jq '. | .maintainer|={contact:{mail:"riogligo@qq.com"},name:"RigoLigo"} | .name|="4C57 Mirror of KiCad official repository" | .packages.url|="https://mirrors.4c57.org/kicadpcm/metadata/packages.json" | .resources.url|="https://mirrors.4c57.org/kicadpcm/metadata/resources.zip"' repo_tmp.json > repo_release.json
-
-# Deploy metadata
-cp repo_release.json /www/wwwroot/mirrors.4c57.org/kicadpcm/metadata/repository.json
-cp resources.zip packages.json /www/wwwroot/mirrors.4c57.org/kicadpcm/metadata/
-
 # ================ Download packages =================
 
 # Build bash commands for downloading
@@ -83,18 +76,25 @@ while IFS= read -r line; do
     echo 'echo '"'"'| .packages['"$idx"'].versions[0].download_url|='"'""'"'"'"'"'"''$target_url''"'"'"'"'"'"' >> filter.jq' >> update_filtering_commands.tmp
     idx=`expr $idx + 1`
 done < update_commands.tmp
-echo 'echo ' '"'"'"'"'' packages.json > packages_new.json' " >> filter.jq" >> update_filtering_commands.tmp
+echo 'echo ' '"'"'"'"''"'' packages.json > packages_new.json''"' " >> filter.jq" >> update_filtering_commands.tmp
 
 source update_filtering_commands.tmp
 
 source filter.jq
 
-cp packages_new.json /www/wwwroot/mirrors.4c57.org/kicadpcm/metadata/
+cp packages_new.json /www/wwwroot/mirrors.4c57.org/kicadpcm/metadata/packages.json
 
-rm update_commands.tmp
+# Make new metadata
+jq '. | .maintainer|={contact:{mail:"riogligo@qq.com"},name:"RigoLigo"} | .name|="4C57 Mirror of KiCad official repository" | .packages.url|="https://mirrors.4c57.org/kicadpcm/metadata/packages.json" | .resources.url|="https://mirrors.4c57.org/kicadpcm/metadata/resources.zip" | .packages.sha256|="'"`sha256sum packages_new.json | head -c 64`"'"' repo_tmp.json > repo_release.json
+
+# Deploy metadata
+cp repo_release.json /www/wwwroot/mirrors.4c57.org/kicadpcm/metadata/repository.json
+cp resources.zip /www/wwwroot/mirrors.4c57.org/kicadpcm/metadata/
 
 # =============== Deploy packages ===============
-cp -f pkg_tmp/*.* 
+cp -f pkg_tmp/*.* /www/wwwroot/mirrors.4c57.org/kicadpcm/packages
 
 # Clean
-rm repo_tmp.json repo_release.json resources.zip packages.json
+rm repo_tmp.json repo_release.json resources.zip packages.json packages_new.json
+rm update_commands.tmp update_filtering_commands.tmp filter.jq
+rm -r pkg_tmp

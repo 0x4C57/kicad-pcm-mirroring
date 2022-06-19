@@ -83,9 +83,13 @@ while IFS= read -r line; do
     echo 'echo '"'"'| .packages['"$idx"'].versions[0].download_url|='"'""'"'"'"'"'"''$target_url''"'"'"'"'"'"' >> filter.jq' >> update_filtering_commands.tmp
     idx=`expr $idx + 1`
 done < update_commands.tmp
-echo 'echo ' '"' "'" '"' " >> filter.jq" >> update_filtering_commands.tmp
-    
-# source update_filtering_commands.tmp
+echo 'echo ' '"'"'"'"'' packages.json > packages_new.json' " >> filter.jq" >> update_filtering_commands.tmp
+
+source update_filtering_commands.tmp
+
+source filter.jq
+
+cp packages_new.json /www/wwwroot/mirrors.4c57.org/kicadpcm/metadata/
 
 rm update_commands.tmp
 

@@ -1,25 +1,28 @@
 #!/bin/bash
 
 function update_package(){
-    # $1: name $2: version $3: address; return file URL on server to target_url
+    # $1: name(Unused since can contain bad characters for files)
+    # $2: version
+    # $3: address; return file URL on server to target_url
     # assume the first entry in the `versions` array is latest, if not match then delete old file
-    if [ -e "versions/$1" ]; then
-        last_ver=`cat "versions/$1"`
-        if [ $[last_ver] -eq $2 ]; then
+    pkg_filename=`echo "$3" | sed -E 's/.+\/([a-zA-Z0-9\-_.]+)/\1/g'`  # Extract file name
+    if [ -e "versions/$pkg_filename" ]; then
+        last_ver=`cat "versions/$pkg_filename"`
+        if [ "$last_ver" -eq "$2" ]; then
             return 0
         fi
     fi
-    pkg_filename=`echo "$3" | sed -E 's/.+\/([a-zA-Z0-9\-_.]+)/\1/g'`  # Extract file name
     curl -L "$3" -o "pkg_tmp/$pkg_filename"  # Download
     target_url="https://mirrors.4c57.org/kicadpcm/packages/$pkg_filename"  # Return URL
     file_path="/www/mirrors.4c57.org/kicadpcm/packages/$pkg_filename"
     cp "pkg_tmp/$pkg_filename" "$file_path"  # Copy file to Web Server
     # Check for old file and remove it
-    if [ -f "lastfilename/$1" -a -f "/www/mirrors.4c57.org/kicadpcm/packages/`cat lastfilename/$1`" ]; then
-        cat "lastfilename/$1" | xargs rm
+    last_file_name=`cat "lastfilename/$pkg_filename"`
+    if [ -f "lastfilename/$pkg_filename" -a -f "/www/mirrors.4c57.org/kicadpcm/packages/$last_file_name" ]; then
+        cat "lastfilename/$pkg_filename" | xargs rm
     fi
-    echo "$file_path" > "lastfilename/$1"  # Write this file path
-    echo "$2" > "versions/$1"
+    echo "$file_path" > "lastfilename/$pkg_filename"  # Write this file path
+    echo "$2" > "versions/$pkg_filename"
 }
 
 # Ensure versions & lastfilename directory exists and isn't a fucking file
@@ -56,9 +59,38 @@ curl -L `jq -r '.resources.url' repo_tmp.json` -o resources.zip
 # Make new metadata
 jq '. | .maintainer|={contact:{mail:"riogligo@qq.com"},name:"RigoLigo"} | .name|="4C57 Mirror of KiCad official repository" | .packages.url|="https://mirrors.4c57.org/kicadpcm/metadata/packages.json" | .resources.url|="https://mirrors.4c57.org/kicadpcm/metadata/resources.zip"' repo_tmp.json > repo_release.json
 
-# Deploy
+# Deploy metadata
 cp repo_release.json /www/wwwroot/mirrors.4c57.org/kicadpcm/metadata/repository.json
 cp resources.zip packages.json /www/wwwroot/mirrors.4c57.org/kicadpcm/metadata/
+
+# ================ Download packages =================
+
+# Build bash commands for downloading
+jq -r 'reduce .packages[] as $item (
+    "";
+    . + "update_package \""
+      + $item.name + "\" \""
+      + $item.versions[0].version + "\" \""
+      + $item.versions[0].download_url + "\"\n"
+)' packages.json > update_commands.tmp
+
+# Insert package.json filter builder
+echo "jq '." > filter.jq
+idx=0
+while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    echo "$line" >> update_filtering_commands.tmp
+    echo 'echo '"'"'| .packages['"$idx"'].versions[0].download_url|='"'""'"'"'"'"'"''$target_url''"'"'"'"'"'"' >> filter.jq' >> update_filtering_commands.tmp
+    idx=`expr $idx + 1`
+done < update_commands.tmp
+echo 'echo ' '"' "'" '"' " >> filter.jq" >> update_filtering_commands.tmp
+    
+# source update_filtering_commands.tmp
+
+rm update_commands.tmp
+
+# =============== Deploy packages ===============
+cp -f pkg_tmp/*.* 
 
 # Clean
 rm repo_tmp.json repo_release.json resources.zip packages.json
